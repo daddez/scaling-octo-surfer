@@ -1,6 +1,6 @@
 name: browser-agent
 
-# Una esecuzione = UNA pagina, aperta con Safari vero (safaridriver su macOS).
+# Una esecuzione = UN elenco di azioni su UNA pagina, con Safari vero (safaridriver su macOS).
 # Il server lancia il lavoro con workflow_dispatch e poi scarica il risultato
 # dall'artifact "render-<job_id>": il Mac non chiama mai il server.
 run-name: browser-agent ${{ inputs.job_id }}
@@ -8,18 +8,13 @@ run-name: browser-agent ${{ inputs.job_id }}
 on:
   workflow_dispatch:
     inputs:
-      url:
-        description: "Indirizzo da aprire (http o https)"
-        required: true
-        type: string
       job_id:
         description: "ID univoco del lavoro (lettere, numeri, - e _)"
         required: true
         type: string
       azioni:
-        description: "Lista JSON di selettori CSS da cliccare dopo il caricamento"
-        required: false
-        default: "[]"
+        description: "Lista JSON di azioni (la prima deve essere view). Vedi render.py"
+        required: true
         type: string
 
 concurrency:
@@ -48,10 +43,9 @@ jobs:
         run: pip install -r requirements.txt
 
       # Gli input arrivano come variabili d'ambiente, mai scritti dentro il comando:
-      # nessuna possibilita' di iniettare comandi shell tramite l'indirizzo.
-      - name: Apri la pagina con Safari
+      # nessuna possibilita' di iniettare comandi shell tramite indirizzi o selettori.
+      - name: Esegui le azioni con Safari
         env:
-          URL: ${{ inputs.url }}
           JOB_ID: ${{ inputs.job_id }}
           AZIONI: ${{ inputs.azioni }}
           TWOCAPTCHA_API_KEY: ${{ secrets.TWOCAPTCHA_API_KEY }}
