@@ -8,4 +8,4 @@ e restituisce pagina, screenshot e metadati. Non contiene chiavi, prompt né mod
 - `meta.json` riporta nome, versione e sistema del browser usato.
 - L'unico segreto del repo e' `TWOCAPTCHA_API_KEY` (opzionale, per reCAPTCHA v2 e Turnstile).
 - Permessi del workflow: solo `contents: read`. Gli input passano come variabili d'ambiente.
-- Azioni ammesse: `view`, `wait`, `captcha`, `scroll`, `scroll_fino_a_fine`, `click` (vedi `render.py`).
+- Azioni ammesse: `view`, `wait`, `captcha`, `scroll`, `scroll_fino_a_fine`, `click` (selettore CSS), `click_testo` (testo visibile del pulsante) (vedi `render.py`).

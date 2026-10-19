@@ -14,7 +14,7 @@ Input (variabili d'ambiente):
                           {"tag": "click", "selettore": "#accetta"}]
   TWOCAPTCHA_API_KEY     opzionale: chiave 2Captcha per reCAPTCHA v2 e Turnstile
 
-Azioni ammesse (tag): view, wait, captcha, scroll, scroll_fino_a_fine, click.
+Azioni ammesse (tag): view, wait, captcha, scroll, scroll_fino_a_fine, click, click_testo.
 Il catalogo con codice, variabili ed esempi sta nella tabella azioni_worker_browser del server.
 """
 import json
@@ -58,6 +58,21 @@ CAPTCHA_INJECT_JS = {
     """,
 }
 CAPTCHA_TASK = {"recaptcha_v2": "RecaptchaV2TaskProxyless", "turnstile": "TurnstileTaskProxyless"}
+
+# Trova l'elemento cliccabile VISIBILE il cui testo coincide (o, in mancanza, contiene) quello cercato.
+JS_TROVA_PER_TESTO = """
+const t = arguments[0].trim().toLowerCase();
+const cand = Array.from(document.querySelectorAll(
+  'a, button, input[type=submit], input[type=button], [role=button], summary, label'));
+const visibile = e => {
+  const r = e.getBoundingClientRect(), cs = getComputedStyle(e);
+  return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none';
+};
+const testo = e => (e.innerText || e.value || e.getAttribute('aria-label') || e.title || '').trim().toLowerCase();
+const esatti = cand.filter(e => visibile(e) && testo(e) === t);
+if (esatti.length) { return esatti[0]; }
+return cand.filter(e => visibile(e) && testo(e).includes(t))[0] || null;
+"""
 
 LOG_RIGHE = []
 
@@ -195,6 +210,16 @@ def az_click(ctx, a):
     gestisci_captcha(ctx.d, ctx.url or ctx.d.current_url, ctx.meta)
 
 
+def az_click_testo(ctx, a):
+    log(f"click sul testo '{a['testo']}'")
+    el = ctx.d.execute_script(JS_TROVA_PER_TESTO, a["testo"])
+    if el is None:
+        raise ValueError(f"nessun elemento cliccabile visibile con il testo '{a['testo']}'")
+    el.click()
+    time.sleep(random.uniform(1.5, 3))
+    gestisci_captcha(ctx.d, ctx.url or ctx.d.current_url, ctx.meta)
+
+
 # tag -> (funzione, {variabile: (tipo, obbligatoria)})
 ESEGUIBILI = {
     "view": (az_view, {"url": (str, True)}),
@@ -203,6 +228,7 @@ ESEGUIBILI = {
     "scroll": (az_scroll, {}),
     "scroll_fino_a_fine": (az_scroll_fino_a_fine, {"attesa_s": ((int, float), False), "max_cicli": (int, False)}),
     "click": (az_click, {"selettore": (str, True)}),
+    "click_testo": (az_click_testo, {"testo": (str, True)}),
 }
 
 
