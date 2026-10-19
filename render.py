@@ -15,7 +15,7 @@ Input (variabili d'ambiente):
   TWOCAPTCHA_API_KEY     opzionale: chiave 2Captcha per reCAPTCHA v2 e Turnstile
 
 Azioni ammesse (tag): view, wait, captcha, scroll, scroll_fino_a_fine, click, click_testo, click_id.
-Il catalogo con codice, variabili ed esempi sta nella tabella azioni_worker_browser del server.
+Le variabili di ogni azione sono descritte in ESEGUIBILI, piu' sotto.
 """
 import json
 import os
@@ -77,7 +77,7 @@ return cand.filter(e => visibile(e) && testo(e).includes(t))[0] || null;
 """
 
 # Numera link e pulsanti nell'ordine in cui compaiono (b1, b2, ...) scrivendo l'id nell'attributo
-# data-btn-id: il server lo legge nel DOM e lo mostra all'AI; click_id ritrova l'elemento da qui.
+# data-btn-id: chi riceve la pagina lo legge nel DOM; click_id ritrova l'elemento da qui.
 JS_NUMERA = """
 const cand = Array.from(document.querySelectorAll(
   'a[href], button, input[type=submit], input[type=button], [role=button], summary, '
@@ -277,7 +277,7 @@ def az_click_id(ctx, a):
 
 def az_scrivi_id(ctx, a):
     """Scrive il testo nel campo con quell'id e preme Invio (barra di ricerca, filtro). La pagina che ne risulta,
-    nuova o filtrata sul posto, viene letta dall'AI al passo dopo."""
+    nuova o filtrata sul posto, viene letta al passo dopo."""
     n = ctx.d.execute_script(JS_NUMERA)
     els = ctx.d.find_elements(By.CSS_SELECTOR, f"[data-btn-id='{a['id']}']")
     if not els:
@@ -315,10 +315,12 @@ ESEGUIBILI = {
 
 
 def valida_input():
-    job_id = os.environ.get("JOB_ID", "")
+    return valida_lavoro(os.environ.get("JOB_ID", ""), json.loads(os.environ.get("AZIONI") or "[]"))
+
+
+def valida_lavoro(job_id, azioni):
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", job_id):
         raise ValueError("JOB_ID non valido")
-    azioni = json.loads(os.environ.get("AZIONI") or "[]")
     if not isinstance(azioni, list) or not 1 <= len(azioni) <= MAX_AZIONI:
         raise ValueError(f"AZIONI deve essere una lista di 1-{MAX_AZIONI} azioni")
     for i, a in enumerate(azioni, 1):
@@ -347,6 +349,36 @@ def valida_input():
     return job_id, azioni
 
 
+def esegui_su_driver(d, azioni, meta):
+    """Esegue le azioni su un Safari gia' aperto e salva pagina e foto in OUT. Alza l'eccezione se qualcosa non va."""
+    caps = d.capabilities
+    meta["browser"] = {
+        "nome": caps.get("browserName"),
+        "versione": caps.get("browserVersion"),
+        "sistema": caps.get("platformName"),
+        "user_agent": d.execute_script("return navigator.userAgent"),
+    }
+    log(f"browser: {meta['browser']['nome']} {meta['browser']['versione']} su {meta['browser']['sistema']}")
+
+    ctx = Ctx(d, meta)
+    for i, a in enumerate(azioni, 1):
+        log(f"azione {i}/{len(azioni)}: {json.dumps(a, ensure_ascii=False)}")
+        ESEGUIBILI[a["tag"]][0](ctx, a)
+
+    d.execute_script(JS_NUMERA)
+    html = d.execute_script("return document.documentElement.outerHTML")
+    (OUT / "rendered.html").write_text(html, encoding="utf-8")
+    (OUT / "screenshot.png").write_bytes(d.get_screenshot_as_png())
+    meta.update({"esito": "ok", "url_finale": d.current_url, "byte_html": len(html.encode("utf-8"))})
+    log(f"fatto: {meta['byte_html']} byte di pagina")
+
+
+def scrivi_esito(meta):
+    meta["fine"] = datetime.now(timezone.utc).isoformat()
+    (OUT / "meta.json").write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+    (OUT / "log.txt").write_text("\n".join(LOG_RIGHE) + "\n", encoding="utf-8")
+
+
 def main():
     OUT.mkdir(exist_ok=True)
     meta = {"avvio": datetime.now(timezone.utc).isoformat(), "esito": "errore", "captcha": None}
@@ -357,33 +389,12 @@ def main():
 
         d = webdriver.Safari()  # Safari vero, comandato da safaridriver
         d.set_page_load_timeout(60)
-        caps = d.capabilities
-        meta["browser"] = {
-            "nome": caps.get("browserName"),
-            "versione": caps.get("browserVersion"),
-            "sistema": caps.get("platformName"),
-            "user_agent": d.execute_script("return navigator.userAgent"),
-        }
-        log(f"browser: {meta['browser']['nome']} {meta['browser']['versione']} su {meta['browser']['sistema']}")
-
-        ctx = Ctx(d, meta)
-        for i, a in enumerate(azioni, 1):
-            log(f"azione {i}/{len(azioni)}: {json.dumps(a, ensure_ascii=False)}")
-            ESEGUIBILI[a["tag"]][0](ctx, a)
-
-        d.execute_script(JS_NUMERA)
-        html = d.execute_script("return document.documentElement.outerHTML")
-        (OUT / "rendered.html").write_text(html, encoding="utf-8")
-        (OUT / "screenshot.png").write_bytes(d.get_screenshot_as_png())
-        meta.update({"esito": "ok", "url_finale": d.current_url, "byte_html": len(html.encode("utf-8"))})
-        log(f"fatto: {meta['byte_html']} byte di pagina")
+        esegui_su_driver(d, azioni, meta)
     except Exception as e:
         meta["errore"] = f"{type(e).__name__}: {e}"
         log(f"ERRORE {meta['errore']}")
     finally:
-        meta["fine"] = datetime.now(timezone.utc).isoformat()
-        (OUT / "meta.json").write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
-        (OUT / "log.txt").write_text("\n".join(LOG_RIGHE) + "\n", encoding="utf-8")
+        scrivi_esito(meta)
         if d is not None:
             d.quit()
     sys.exit(0 if meta["esito"] == "ok" else 1)

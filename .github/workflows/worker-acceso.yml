@@ -1,0 +1,41 @@
+name: worker-acceso
+
+# Un Safari vero che resta acceso e prende i lavori, uno dopo l'altro, dall'indirizzo PONTE_URL (agente.py).
+# Esce da solo dopo 5 ore e 45 minuti (GitHub chiude i lavori a 6 ore) o dopo 45 minuti senza lavori.
+run-name: worker-acceso ${{ github.run_number }}
+
+on:
+  workflow_dispatch:
+
+# Un solo worker alla volta: un secondo lancio aspetta in coda invece di partire in parallelo.
+concurrency:
+  group: worker-acceso
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  agente:
+    runs-on: macos-latest
+    timeout-minutes: 355
+
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Abilita safaridriver (Safari reale)
+        run: sudo safaridriver --enable
+
+      - name: Installa dipendenze
+        run: pip install -r requirements.txt
+
+      - name: Worker sempre acceso
+        env:
+          PONTE_URL: ${{ secrets.PONTE_URL }}
+          PONTE_TOKEN: ${{ secrets.PONTE_TOKEN }}
+          TWOCAPTCHA_API_KEY: ${{ secrets.TWOCAPTCHA_API_KEY }}
+        run: python agente.py

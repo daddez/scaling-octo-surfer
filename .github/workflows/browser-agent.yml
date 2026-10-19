@@ -1,8 +1,8 @@
 name: browser-agent
 
 # Una esecuzione = UN elenco di azioni su UNA pagina, con Safari vero (safaridriver su macOS).
-# Il server lancia il lavoro con workflow_dispatch e poi scarica il risultato
-# dall'artifact "render-<job_id>": il Mac non chiama mai il server.
+# Il chiamante lancia il lavoro con workflow_dispatch e poi scarica il risultato
+# dall'artifact "render-<job_id>".
 run-name: browser-agent ${{ inputs.job_id }}
 
 on:
