@@ -196,6 +196,22 @@ def az_view(ctx, a):
     except Exception as e:  # tempo scaduto di caricamento: leggo quello che c'e'
         log(f"caricamento non completo: {type(e).__name__}")
         ctx.meta["caricamento_incompleto"] = True
+        try:
+            elementi = stato_pagina(ctx.d)[0]
+        except Exception:
+            elementi = 0
+        if elementi < 50:  # pagina praticamente vuota: riprovo una volta con piu' tempo
+            log(f"la pagina ha solo {elementi} elementi: riprovo una volta con 120 secondi")
+            ctx.meta["caricamento_riprovato"] = True
+            ctx.d.set_page_load_timeout(120)
+            try:
+                ctx.d.get(ctx.url)
+                ctx.meta["caricamento_incompleto"] = False
+            except Exception as e2:
+                log(f"anche il secondo caricamento e' incompleto: {type(e2).__name__}")
+            finally:
+                ctx.d.set_page_load_timeout(60)
+            log(f"dopo il secondo tentativo la pagina ha {stato_pagina(ctx.d)[0]} elementi")
     gestisci_captcha(ctx.d, ctx.url, ctx.meta)
 
 
