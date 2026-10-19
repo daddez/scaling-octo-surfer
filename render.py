@@ -30,6 +30,7 @@ from urllib.parse import urlparse
 import requests
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 
 OUT = Path("render-results")
 API_2CAPTCHA = "https://api.2captcha.com"
@@ -78,7 +79,8 @@ return cand.filter(e => visibile(e) && testo(e).includes(t))[0] || null;
 # data-btn-id: il server lo legge nel DOM e lo mostra all'AI; click_id ritrova l'elemento da qui.
 JS_NUMERA = """
 const cand = Array.from(document.querySelectorAll(
-  'a[href], button, input[type=submit], input[type=button], [role=button], summary'));
+  'a[href], button, input[type=submit], input[type=button], [role=button], summary, '
+  + 'input:not([type]), input[type=text], input[type=search]'));
 let n = 0;
 for (const e of cand) { e.setAttribute('data-btn-id', 'b' + (++n)); }
 return n;
@@ -243,6 +245,25 @@ def az_click_id(ctx, a):
     gestisci_captcha(ctx.d, ctx.url or ctx.d.current_url, ctx.meta)
 
 
+def az_scrivi_id(ctx, a):
+    """Scrive il testo nel campo con quell'id e preme Invio (barra di ricerca, filtro). La pagina che ne risulta,
+    nuova o filtrata sul posto, viene letta dall'AI al passo dopo."""
+    n = ctx.d.execute_script(JS_NUMERA)
+    els = ctx.d.find_elements(By.CSS_SELECTOR, f"[data-btn-id='{a['id']}']")
+    if not els:
+        raise ValueError(f"nessun campo con id {a['id']} (la pagina ha {n} elementi numerati)")
+    log(f"scrivo '{a['testo']}' nel campo {a['id']} e premo Invio")
+    ctx.d.execute_script("arguments[0].scrollIntoView({block:'center'});", els[0])
+    time.sleep(0.5)
+    els[0].click()
+    els[0].clear()
+    els[0].send_keys(a["testo"])
+    time.sleep(0.5)
+    els[0].send_keys(Keys.ENTER)
+    time.sleep(random.uniform(3, 5))
+    gestisci_captcha(ctx.d, ctx.url or ctx.d.current_url, ctx.meta)
+
+
 # tag -> (funzione, {variabile: (tipo, obbligatoria)})
 ESEGUIBILI = {
     "view": (az_view, {"url": (str, True)}),
@@ -253,6 +274,7 @@ ESEGUIBILI = {
     "click": (az_click, {"selettore": (str, True)}),
     "click_testo": (az_click_testo, {"testo": (str, True)}),
     "click_id": (az_click_id, {"id": (str, True)}),
+    "scrivi_id": (az_scrivi_id, {"id": (str, True), "testo": (str, True)}),
 }
 
 
@@ -282,6 +304,8 @@ def valida_input():
                 raise ValueError(f"azione {i}: view accetta solo indirizzi http o https")
         if a["tag"] == "wait" and not 0 < a["secondi"] <= 60:
             raise ValueError(f"azione {i}: wait accetta da 0 a 60 secondi")
+        if a["tag"] == "scrivi_id" and not 1 <= len(a["testo"]) <= 200:
+            raise ValueError(f"azione {i}: scrivi_id accetta da 1 a 200 caratteri")
     if azioni[0]["tag"] != "view":
         raise ValueError("la prima azione deve essere 'view'")
     return job_id, azioni
