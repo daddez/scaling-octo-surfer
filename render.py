@@ -29,6 +29,7 @@ from urllib.parse import urlparse
 
 import requests
 from selenium import webdriver
+from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 
@@ -84,6 +85,19 @@ const cand = Array.from(document.querySelectorAll(
 let n = 0;
 for (const e of cand) { e.setAttribute('data-btn-id', 'b' + (++n)); }
 return n;
+"""
+
+JS_SCRIVI = """
+const e = arguments[0], t = arguments[1];
+e.focus();
+Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(e, t);
+e.dispatchEvent(new Event('input', {bubbles: true}));
+e.dispatchEvent(new Event('change', {bubbles: true}));
+if (e.form) { if (e.form.requestSubmit) { e.form.requestSubmit(); } else { e.form.submit(); } return 'modulo'; }
+for (const tipo of ['keydown', 'keypress', 'keyup']) {
+  e.dispatchEvent(new KeyboardEvent(tipo, {key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true}));
+}
+return 'invio';
 """
 
 LOG_RIGHE = []
@@ -255,11 +269,17 @@ def az_scrivi_id(ctx, a):
     log(f"scrivo '{a['testo']}' nel campo {a['id']} e premo Invio")
     ctx.d.execute_script("arguments[0].scrollIntoView({block:'center'});", els[0])
     time.sleep(0.5)
-    els[0].click()
-    els[0].clear()
-    els[0].send_keys(a["testo"])
-    time.sleep(0.5)
-    els[0].send_keys(Keys.ENTER)
+    try:
+        els[0].click()
+        els[0].clear()
+        els[0].send_keys(a["testo"])
+        time.sleep(0.5)
+        els[0].send_keys(Keys.ENTER)
+    except WebDriverException as e:
+        # campo nascosto (per esempio la ricerca dentro un pannello chiuso): scrivo e invio con JavaScript
+        log(f"campo non utilizzabile con la tastiera ({type(e).__name__}): scrivo con JavaScript")
+        come = ctx.d.execute_script(JS_SCRIVI, els[0], a["testo"])
+        log(f"testo inserito e inviato tramite {come}")
     time.sleep(random.uniform(3, 5))
     gestisci_captcha(ctx.d, ctx.url or ctx.d.current_url, ctx.meta)
 
