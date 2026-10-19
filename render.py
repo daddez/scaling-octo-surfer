@@ -14,7 +14,7 @@ Input (variabili d'ambiente):
                           {"tag": "click", "selettore": "#accetta"}]
   TWOCAPTCHA_API_KEY     opzionale: chiave 2Captcha per reCAPTCHA v2 e Turnstile
 
-Azioni ammesse (tag): view, wait, captcha, scroll, scroll_fino_a_fine, click, click_testo.
+Azioni ammesse (tag): view, wait, captcha, scroll, scroll_fino_a_fine, click, click_testo, click_id.
 Il catalogo con codice, variabili ed esempi sta nella tabella azioni_worker_browser del server.
 """
 import json
@@ -72,6 +72,16 @@ const testo = e => (e.innerText || e.value || e.getAttribute('aria-label') || e.
 const esatti = cand.filter(e => visibile(e) && testo(e) === t);
 if (esatti.length) { return esatti[0]; }
 return cand.filter(e => visibile(e) && testo(e).includes(t))[0] || null;
+"""
+
+# Numera link e pulsanti nell'ordine in cui compaiono (b1, b2, ...) scrivendo l'id nell'attributo
+# data-btn-id: il server lo legge nel DOM e lo mostra all'AI; click_id ritrova l'elemento da qui.
+JS_NUMERA = """
+const cand = Array.from(document.querySelectorAll(
+  'a[href], button, input[type=submit], input[type=button], [role=button], summary'));
+let n = 0;
+for (const e of cand) { e.setAttribute('data-btn-id', 'b' + (++n)); }
+return n;
 """
 
 LOG_RIGHE = []
@@ -220,6 +230,19 @@ def az_click_testo(ctx, a):
     gestisci_captcha(ctx.d, ctx.url or ctx.d.current_url, ctx.meta)
 
 
+def az_click_id(ctx, a):
+    n = ctx.d.execute_script(JS_NUMERA)
+    log(f"numerati {n} elementi; click su {a['id']}")
+    els = ctx.d.find_elements(By.CSS_SELECTOR, f"[data-btn-id='{a['id']}']")
+    if not els:
+        raise ValueError(f"nessun elemento con id {a['id']} (la pagina ne ha {n})")
+    ctx.d.execute_script("arguments[0].scrollIntoView({block:'center'});", els[0])
+    time.sleep(0.5)
+    els[0].click()
+    time.sleep(random.uniform(1.5, 3))
+    gestisci_captcha(ctx.d, ctx.url or ctx.d.current_url, ctx.meta)
+
+
 # tag -> (funzione, {variabile: (tipo, obbligatoria)})
 ESEGUIBILI = {
     "view": (az_view, {"url": (str, True)}),
@@ -229,6 +252,7 @@ ESEGUIBILI = {
     "scroll_fino_a_fine": (az_scroll_fino_a_fine, {"attesa_s": ((int, float), False), "max_cicli": (int, False)}),
     "click": (az_click, {"selettore": (str, True)}),
     "click_testo": (az_click_testo, {"testo": (str, True)}),
+    "click_id": (az_click_id, {"id": (str, True)}),
 }
 
 
@@ -287,6 +311,7 @@ def main():
             log(f"azione {i}/{len(azioni)}: {json.dumps(a, ensure_ascii=False)}")
             ESEGUIBILI[a["tag"]][0](ctx, a)
 
+        d.execute_script(JS_NUMERA)
         html = d.execute_script("return document.documentElement.outerHTML")
         (OUT / "rendered.html").write_text(html, encoding="utf-8")
         (OUT / "screenshot.png").write_bytes(d.get_screenshot_as_png())
